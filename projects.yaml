@@ -1,0 +1,24 @@
+# HCP Terraform project inventory — the source of truth for this factory.
+#
+# Each record creates one tfe_project. Required fields per record:
+#   name          Project name (3-40 chars on current HCP TF / TFE).
+#   organization  Organization the project is created in.
+#   cost_centre   Formalised tag — always applied as tag key "cost_centre".
+#   owner         Formalised tag — always applied as tag key "owner".
+# Optional:
+#   tags          Arbitrary key/value tags. May be omitted or empty ({}).
+#                 cost_centre/owner take precedence if reused here.
+projects:
+  - name: payments-platform
+    organization: 2240368-GBS-Projects
+    cost_centre: "CC-1001"
+    owner: platform-team
+    tags:
+      environment: production
+      data_class: confidential
+
+  - name: data-lake
+    organization: 2240368-GBS-Projects
+    cost_centre: "CC-2002"
+    owner: data-eng
+    tags: {}

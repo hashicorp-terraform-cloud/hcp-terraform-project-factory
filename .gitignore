@@ -1,5 +1,27 @@
 
-# Beads / Dolt files (added by bd init)
+# Beads / Dolt issue tracker — managed by bd, kept out of the upstream repo
+.beads/
 .dolt/
 *.db
 .beads-credential-key
+
+# AI agent scaffolding — local only, not for the upstream repo
+.claude/
+CLAUDE.md
+AGENT.md
+AGENTS.md
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc

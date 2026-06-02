@@ -1,7 +1,0 @@
-{
-  "database": "dolt",
-  "backend": "dolt",
-  "dolt_mode": "embedded",
-  "dolt_database": "hcp_tf_project_factory",
-  "project_id": "c4eaf4f2-edce-4b0f-8c16-91c5ce737685"
-}
