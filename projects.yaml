@@ -1,7 +1,10 @@
 # HCP Terraform project inventory — the source of truth for this factory.
 #
-# Each record creates one tfe_project. Required fields per record:
-#   name          Project name (3-40 chars on current HCP TF / TFE).
+# Each record creates one tfe_project AND an OpenShift landing-zone namespace of
+# the same name. Required fields per record:
+#   name          Project name (3-40 chars on current HCP TF / TFE). Also used as
+#                 the OpenShift namespace name, so it must be a DNS-1123 label:
+#                 lowercase alphanumeric and '-' only, e.g. payments-platform.
 #   organization  Organization the project is created in.
 #   cost_centre   Formalised tag — always applied as tag key "cost_centre".
 #   owner         Formalised tag — always applied as tag key "owner".

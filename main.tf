@@ -46,6 +46,17 @@ resource "terraform_data" "validate_inventory" {
       condition     = local.parseable
       error_message = "projects.yaml is not valid YAML. Refusing to proceed, because an empty inventory would destroy every managed project. Fix the syntax error and retry."
     }
+
+    # Each project name is also used as the OpenShift namespace name, so it must
+    # be a valid DNS-1123 label (lowercase alphanumeric and '-', <= 63 chars).
+    # Fail fast here rather than with an opaque Kubernetes API error at apply.
+    precondition {
+      condition = alltrue([
+        for v in values(local.projects) :
+        can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", v.name)) && length(v.name) <= 63
+      ])
+      error_message = "Every project name must be a valid DNS-1123 label (lowercase alphanumeric and '-', up to 63 chars) because it is also the OpenShift namespace name."
+    }
   }
 }
 
