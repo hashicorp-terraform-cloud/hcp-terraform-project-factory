@@ -10,7 +10,9 @@ projects to match.
 [`main.tf`](main.tf) `yamldecode`s the inventory, normalises each record, and
 drives a single `tfe_project` resource with `for_each`. Two **formalised tags**
 — `cost_centre` and `owner` — come from dedicated YAML fields and are always
-applied; any additional `tags` map is merged in underneath them.
+applied; any additional `tags` map is merged in underneath them. A
+`terraform_data` guard rejects an unparseable inventory before any project is
+touched (see [Empty & invalid inventory handling](#empty--invalid-inventory-handling)).
 
 ```
 projects.yaml ──► local.projects ──► tfe_project.this (for_each)
@@ -40,6 +42,20 @@ same project name may appear in different organizations.
 
 If an arbitrary `tags` entry reuses the key `cost_centre` or `owner`, the
 formalised value wins.
+
+## Empty & invalid inventory handling
+
+The ingestion is deliberately fail-safe, because a project that silently
+disappears from the inventory would be **destroyed** on apply:
+
+| `projects.yaml` state | Behaviour |
+| --- | --- |
+| Blank / all-comment file | Treated as **no projects** (no error) |
+| `projects:` key missing or null, or `projects: []` | Treated as **no projects** |
+| Malformed / unparseable YAML | **Run is blocked** by the `terraform_data.validate_inventory` precondition, which names the problem — it is *not* silently treated as an empty inventory |
+
+In other words, "the file is empty" is a legitimate no-op, but "the file is
+broken" stops the run rather than proposing to delete every managed project.
 
 ## Running it (VCS-managed workspace)
 
