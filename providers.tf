@@ -8,3 +8,9 @@ provider "tfe" {}
 # account token supplied to this workspace via the KUBE_HOST / KUBE_TOKEN (and
 # cluster CA) environment variables — the same env-driven pattern as tfe above.
 provider "kubernetes" {}
+
+# Authenticates via HCP Terraform Vault dynamic credentials (TFC_VAULT_* injected
+# on this workspace). Must target the Vault namespace where the "openshift"
+# Kubernetes secrets engine is mounted — set TFC_VAULT_NAMESPACE=admin on the
+# workspace (or add namespace = "admin" here).
+provider "vault" {}

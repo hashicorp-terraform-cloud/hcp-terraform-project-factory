@@ -1,7 +1,7 @@
 # OpenShift landing zone per managed project: a namespace, an admin-scoped
-# service account, and that SA's token fed back into the project's HCP TF scope
-# as KUBE_TOKEN. All resources for_each over the same local.projects map and the
-# same "<organization>/<name>" keys as tfe_project.this.
+# service account, and a Vault Kubernetes-secrets-engine role that vends
+# short-lived tokens for that SA. All resources for_each over the same
+# local.projects map and the same "<organization>/<name>" keys as tfe_project.this.
 
 # The landing zone itself. The project name doubles as the namespace name, so it
 # must be a DNS-1123 label (enforced by the guard in main.tf). cost_centre/owner
@@ -53,50 +53,19 @@ resource "kubernetes_role_binding_v1" "admin" {
   }
 }
 
-# Long-lived token for the SA. On Kubernetes/OpenShift >= 1.24 a SA no longer
-# auto-mints a token Secret, and a manually-created one is populated
-# asynchronously by the token controller — wait_for_service_account_token blocks
-# until the token is present so the value below is never read empty.
-resource "kubernetes_secret_v1" "sa_token" {
+# Per-project role on the "openshift" Kubernetes secrets engine (mounted in Vault
+# namespace "admin"). Existing-SA mode: Vault vends short-lived tokens for the
+# tf-admin service account above, scoped to the project namespace. Downstream
+# workspaces read openshift/creds/<project-name> ephemerally at their own run
+# instead of inheriting a stored, long-lived KUBE_TOKEN. Referencing the SA's
+# name (rather than the literal "tf-admin") makes the role depend on the SA.
+resource "vault_kubernetes_secret_backend_role" "landing_zone" {
   for_each = local.projects
 
-  metadata {
-    name      = "tf-admin-token"
-    namespace = kubernetes_namespace_v1.this[each.key].metadata[0].name
-    annotations = {
-      "kubernetes.io/service-account.name" = kubernetes_service_account_v1.this[each.key].metadata[0].name
-    }
-  }
-
-  type                           = "kubernetes.io/service-account-token"
-  wait_for_service_account_token = true
-}
-
-# The loop back into HCP TF: a project-owned variable set, applied to the project,
-# carrying just the SA bearer token as the env var the Kubernetes provider reads.
-resource "tfe_variable_set" "openshift" {
-  for_each = local.projects
-
-  name              = "${each.value.name}-openshift-auth"
-  description       = "OpenShift landing-zone admin token for project ${each.value.name}."
-  organization      = each.value.organization
-  parent_project_id = tfe_project.this[each.key].id
-}
-
-resource "tfe_project_variable_set" "openshift" {
-  for_each = local.projects
-
-  project_id      = tfe_project.this[each.key].id
-  variable_set_id = tfe_variable_set.openshift[each.key].id
-}
-
-resource "tfe_variable" "kube_token" {
-  for_each = local.projects
-
-  key             = "KUBE_TOKEN"
-  value           = kubernetes_secret_v1.sa_token[each.key].data["token"]
-  category        = "env"
-  sensitive       = true
-  description     = "Bearer token for the project's OpenShift namespace-admin service account."
-  variable_set_id = tfe_variable_set.openshift[each.key].id
+  backend                       = "openshift"
+  name                          = each.value.name
+  allowed_kubernetes_namespaces = [each.value.name]
+  service_account_name          = kubernetes_service_account_v1.this[each.key].metadata[0].name
+  token_default_ttl             = 3600  # 1h
+  token_max_ttl                 = 14400 # 4h
 }

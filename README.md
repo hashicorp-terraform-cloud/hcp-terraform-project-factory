@@ -69,89 +69,50 @@ fed back into the project's HCP TF scope so its workspaces can self-serve:
 | `kubernetes_namespace_v1.this` | The namespace (named after the project). `cost_centre`/`owner` are stored as annotations. |
 | `kubernetes_service_account_v1.this` | `tf-admin` — the project's automation identity. |
 | `kubernetes_role_binding_v1.admin` | Binds the built-in `admin` ClusterRole to the SA **at namespace scope** (project admin, not cluster-admin). |
-| `kubernetes_secret_v1.sa_token` | A long-lived `service-account-token` Secret. `wait_for_service_account_token` blocks until the token controller populates it. |
-| `tfe_variable_set.openshift` + `tfe_project_variable_set.openshift` | A project-owned variable set, applied to the project. |
-| `tfe_variable.kube_token` | The SA token as a sensitive `env` variable `KUBE_TOKEN` in that set. |
+| `vault_kubernetes_secret_backend_role.landing_zone` | A role on the `openshift` Vault Kubernetes secrets engine that vends **short-lived** tokens for the `tf-admin` SA, scoped to the project namespace (existing-SA mode). |
 
 ### The credential flow
 
 ```
-cluster-admin token (KUBE_HOST/KUBE_TOKEN env on THIS workspace)
-        │  factory authenticates to OpenShift
-        ▼
-namespace + tf-admin SA (namespace-admin) ──► long-lived SA token
+factory workspace (its own cluster-admin KUBE_TOKEN) creates, per project:
+   namespace + tf-admin SA + admin RoleBinding + Vault role openshift/roles/<project>
         │
         ▼
-project-scoped variable set: KUBE_TOKEN (sensitive env)
-        │  inherited by every workspace in the HCP TF project
+downstream workspace ──HCP TF Vault dynamic creds──► reads openshift/creds/<project>
+        │   Vault calls the cluster TokenRequest API for the tf-admin SA
         ▼
-downstream workspace's kubernetes provider authenticates to its own namespace
+short-lived, namespace-scoped SA token ──► kubernetes provider authenticates
 ```
 
-`KUBE_HOST` (the API endpoint) and the cluster CA are assumed to be present
-already in the downstream scope; this factory only supplies `KUBE_TOKEN`.
+The factory keeps its **own** long-lived cluster-admin token (to create namespaces,
+service accounts and Vault roles). The **project landing zones no longer store a
+token** — each downstream run mints a fresh, short-lived, namespace-scoped token
+from Vault. The generic HCP TF↔Vault auth config is delivered to every project by
+the org variable set "HCP Vault Provider Auth" (see [`vault_auth.tf`](vault_auth.tf)).
 
-> **Note:** the stored token is a **long-lived, static** service-account token —
-> it does not expire, which keeps the variable set valid indefinitely but means
-> it does not rotate on its own. The factory authenticates to OpenShift with a
-> cluster-admin SA token provided to its own workspace as `KUBE_HOST`/`KUBE_TOKEN`.
+**Prerequisites (owned outside this repo):** the `openshift` engine must be mounted
+in Vault namespace `admin` and **configured** (`openshift/config` with the cluster
+host/CA and a privileged JWT able to call TokenRequest); the factory workspace needs
+Vault dynamic credentials (`TFC_VAULT_*`, namespace `admin`) and a policy allowing
+`write openshift/roles/*`. `KUBE_HOST`/CA are assumed present in the downstream scope.
 
-### Authentication decision: why a long-lived token, not dynamic credentials
+**Next step (tracked in beads):** the downstream *consumption* — a consuming
+workspace's `ephemeral "vault_kubernetes_service_account_token"` read of
+`openshift/creds/<project>`, which keeps the token out of state and fresh per apply.
 
-[HCP Terraform dynamic provider credentials](https://developer.hashicorp.com/terraform/cloud-docs/dynamic-provider-credentials/kubernetes-configuration)
-(workload-identity / OIDC) would remove the stored token entirely — each run mints
-a short-lived OIDC JWT instead. We evaluated it and **deliberately did not adopt
-it**, because on OpenShift it requires
-[direct external OIDC](https://docs.redhat.com/en/documentation/openshift_container_platform/4.19/html/authentication_and_authorization/external-auth),
-which:
+### Alternatives considered
 
-- **replaces the built-in OAuth server**, breaking htpasswd/LDAP/SSO and `oc login`
-  password flows for human users;
-- allows [**at most one** external OIDC provider](https://github.com/openshift/enhancements/blob/master/enhancements/authentication/direct-external-oidc-provider.md),
-  so human SSO and HCP Terraform cannot coexist;
-- leaves humans with only a break-glass client certificate.
-
-This cluster serves human users via OAuth, so that trade-off is unacceptable.
-**Revisit only if** (a) a cluster *dedicated to automation* (no human login)
-becomes available, or (b) OpenShift gains multi-issuer external OIDC so human
-OAuth and HCP Terraform can run side by side.
-
-#### Candidate future architecture: Vault as the single OIDC issuer
-
-The single-provider limit can be worked around by making **Vault** the one OIDC
-issuer OpenShift trusts, fronting *both* humans and automation:
-
-- **Humans** authenticate to Vault (any auth method) and receive Vault-signed
-  tokens OpenShift accepts.
-- **Automation** presents its HCP TF workload-identity JWT to a Vault JWT auth
-  mount (`bound_issuer = https://app.terraform.io`), then mints a Vault identity
-  OIDC token (`iss = Vault`, `aud = openshift`) used as `KUBE_TOKEN`. No stored
-  secret.
-
-This is secretless *and* keeps human access, but it is a **platform-level
-commitment**, not a change scoped to this factory: Vault becomes critical-path
-for all cluster auth, the OAuth→external-OIDC bootstrap still applies (now
-fronted by Vault), this config would grow a `vault` provider plus per-project
-Vault resources, and humans need a credential-exec helper so they share the same
-Vault issuer the automation uses.
-
-Note: the [native HCP TF Kubernetes dynamic-credentials](https://developer.hashicorp.com/terraform/cloud-docs/dynamic-provider-credentials/kubernetes-configuration)
-flow does **not** enable this — its token is signed by HCP TF
-(`iss = app.terraform.io`) and never passes through Vault, so a Vault-trusting
-cluster rejects it. That flow is only for end-state (a) above, where OpenShift
-trusts HCP Terraform directly. Tracked in the backlog for if/when Vault fronts
-cluster auth.
-
-**Token-in-state constraint:** the Vault→OpenShift token exchange must **not** be
-a normal `data "vault_identity_oidc_token"` read — that persists the token in
-state and freezes a plan-time token a short TTL invalidates before apply. It
-requires an **ephemeral resource** (Terraform 1.10+: never in state, opened at
-apply, can feed the kubernetes provider's `token`) — confirm an *ephemeral*
-identity-oidc-token resource exists in the Vault provider, or mint the token
-outside Terraform (agent hook / `exec` plugin). The same state exposure applies
-to the **current** design — `kubernetes_secret_v1.sa_token.data` and
-`tfe_variable.kube_token.value` are in state today; ephemeral reads and
-write-only (`*_wo`) attributes would harden it.
+- **Long-lived SA token in a project variable set** (the original design) — simplest,
+  but a static credential that also sat in Terraform state. Superseded by the Vault
+  secrets-engine flow above.
+- **OpenShift external OIDC** (HCP Terraform, or Vault, as the cluster's OIDC issuer) —
+  would let runs authenticate as OIDC identities, but
+  [direct external OIDC](https://docs.redhat.com/en/documentation/openshift_container_platform/4.19/html/authentication_and_authorization/external-auth)
+  **replaces the OAuth server** and permits
+  [only one provider](https://github.com/openshift/enhancements/blob/master/enhancements/authentication/direct-external-oidc-provider.md),
+  so human SSO and automation cannot coexist. Rejected for a human-serving cluster.
+  The Vault **secrets engine** above sidesteps this entirely — it issues ordinary,
+  short-lived SA bearer tokens, so OpenShift's own authentication is untouched.
 
 ## Running it (VCS-managed workspace)
 
