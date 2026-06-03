@@ -12,13 +12,13 @@
 #   tags          Arbitrary key/value tags. May be omitted or empty ({}).
 #                 cost_centre/owner take precedence if reused here.
 projects:
-  # - name: payments-platform
-  #   organization: 2240368-GBS-Projects
-  #   cost_centre: "CC-1001"
-  #   owner: platform-team
-  #   tags:
-  #     environment: production
-  #     data_class: confidential
+  - name: operation-tangible-badger
+    organization: 2240368-GBS-Projects
+    cost_centre: "CC-1001"
+    owner: platform-team
+    tags:
+      environment: production
+      data_class: confidential
 
   # - name: data-lake
   #   organization: 2240368-GBS-Projects
