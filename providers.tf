@@ -4,10 +4,12 @@
 # factory can manage projects across multiple organizations.
 provider "tfe" {}
 
-# Authenticates to the single OpenShift cluster using the cluster-admin service
-# account token supplied to this workspace via the KUBE_HOST / KUBE_TOKEN (and
-# cluster CA) environment variables — the same env-driven pattern as tfe above.
-provider "kubernetes" {}
+# Cluster-admin access to the OpenShift cluster. host and token come from the
+# KUBE_HOST / KUBE_TOKEN env vars; the CA is supplied base64-encoded and decoded
+# here (cluster_ca_certificate expects raw PEM).
+provider "kubernetes" {
+  cluster_ca_certificate = base64decode(var.openshift_ca_cert_base64)
+}
 
 # Authenticates via HCP Terraform Vault dynamic credentials (TFC_VAULT_* injected
 # on this workspace). Must target the Vault namespace where the "openshift"
