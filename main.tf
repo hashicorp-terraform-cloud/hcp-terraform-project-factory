@@ -75,3 +75,31 @@ resource "tfe_project" "this" {
     },
   )
 }
+
+# Project-scoped variable set exposing the project name (also the OpenShift
+# namespace and Vault role) as a Terraform variable for workspaces to reuse.
+resource "tfe_variable_set" "project" {
+  for_each = local.projects
+
+  name              = "${each.value.name}-metadata"
+  description       = "Project metadata variables for ${each.value.name}."
+  organization      = each.value.organization
+  parent_project_id = tfe_project.this[each.key].id
+}
+
+resource "tfe_project_variable_set" "project" {
+  for_each = local.projects
+
+  project_id      = tfe_project.this[each.key].id
+  variable_set_id = tfe_variable_set.project[each.key].id
+}
+
+resource "tfe_variable" "project_name" {
+  for_each = local.projects
+
+  key             = "project_name"
+  value           = each.value.name
+  category        = "terraform"
+  description     = "Project name (also the OpenShift namespace and Vault role name)."
+  variable_set_id = tfe_variable_set.project[each.key].id
+}
