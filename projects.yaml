@@ -12,7 +12,7 @@
 #   tags          Arbitrary key/value tags. May be omitted or empty ({}).
 #                 cost_centre/owner take precedence if reused here.
 projects:
-  - name: operation-tangible-badger
+  - name: my-app-1
     organization: 2240368-GBS-Projects
     cost_centre: "CC-1001"
     owner: platform-team
