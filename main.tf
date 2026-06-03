@@ -47,15 +47,14 @@ resource "terraform_data" "validate_inventory" {
       error_message = "projects.yaml is not valid YAML. Refusing to proceed, because an empty inventory would destroy every managed project. Fix the syntax error and retry."
     }
 
-    # Each project name is also used as the OpenShift namespace name, so it must
-    # be a valid DNS-1123 label (lowercase alphanumeric and '-', <= 63 chars).
-    # Fail fast here rather than with an opaque Kubernetes API error at apply.
+    # The project name is reused as the OpenShift namespace and the HCP TF project
+    # name, so it must be a DNS-1123 label within HCP TF's 40-char project limit.
     precondition {
       condition = alltrue([
         for v in values(local.projects) :
-        can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", v.name)) && length(v.name) <= 63
+        can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", v.name)) && length(v.name) <= 40
       ])
-      error_message = "Every project name must be a valid DNS-1123 label (lowercase alphanumeric and '-', up to 63 chars) because it is also the OpenShift namespace name."
+      error_message = "Every project name must be a valid DNS-1123 label (lowercase alphanumeric and '-') of at most 40 characters, because it is also the OpenShift namespace and HCP TF project name."
     }
   }
 }
@@ -76,8 +75,8 @@ resource "tfe_project" "this" {
   )
 }
 
-# Project-scoped variable set exposing the project name (also the OpenShift
-# namespace and Vault role) as a Terraform variable for workspaces to reuse.
+# Project-scoped variable set exposing project metadata (project name, Vault
+# secrets-engine mount) as Terraform variables for workspaces to reuse.
 resource "tfe_variable_set" "project" {
   for_each = local.projects
 
@@ -101,5 +100,15 @@ resource "tfe_variable" "project_name" {
   value           = each.value.name
   category        = "terraform"
   description     = "Project name (also the OpenShift namespace and Vault role name)."
+  variable_set_id = tfe_variable_set.project[each.key].id
+}
+
+resource "tfe_variable" "vault_kubernetes_backend" {
+  for_each = local.projects
+
+  key             = "vault_kubernetes_backend"
+  value           = var.vault_kubernetes_backend
+  category        = "terraform"
+  description     = "Vault Kubernetes secrets engine mount path for minting OpenShift tokens."
   variable_set_id = tfe_variable_set.project[each.key].id
 }

@@ -62,7 +62,7 @@ resource "kubernetes_role_binding_v1" "admin" {
 resource "vault_kubernetes_secret_backend_role" "landing_zone" {
   for_each = local.projects
 
-  backend                       = "openshift"
+  backend                       = var.vault_kubernetes_backend
   name                          = each.value.name
   allowed_kubernetes_namespaces = [each.value.name]
   service_account_name          = kubernetes_service_account_v1.this[each.key].metadata[0].name
