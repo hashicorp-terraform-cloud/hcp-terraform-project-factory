@@ -27,7 +27,14 @@ projects:
     tags:
       environment: test
       data_class: os
-
+      
+  - name: mark
+    organization: 2240368-GBS-Projects
+    cost_centre: "CC-1003"
+    owner: platform-team
+    tags:
+      environment: prod
+      data_class: os
   # - name: data-lake
   #   organization: 2240368-GBS-Projects
   #   cost_centre: "CC-2002"
